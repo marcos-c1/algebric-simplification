@@ -99,17 +99,23 @@ void insert(AST *ast, void *data){
 	ast->root = insertHelper(ast, ast->root, data);
 }
 
+void printExpression(Expression *args, int qtdArgs){
+	int i = 0;
+	int j = 0;
+	for(i = 0; i < qtdArgs; i++){
+		for(j = 0; j < args[i].len; j++){
+			printf("%c", *(char*)args[i].tkn[j].data); 
+		}
+	}
+}
 Expression* parse(AST *ast, void *expr, int currentTokenPosition){
 	size_t len = strlen((char*)expr); 
 	Token *tkn = malloc(sizeof(Token)*len);
 	// current expr: AC*(ABD) + ABC
 	size_t i = 0;
 	while(i < len){
-		char word = *(char*)expr++;
-		printf("word: %c\n", word); 
+		char word = *(char*)expr;
 		switch(word){
-			case ' ':
-				break;
 			case '*':
 			case '+': 
 				tkn[i].data = ast->constructor(expr); 
@@ -132,6 +138,7 @@ Expression* parse(AST *ast, void *expr, int currentTokenPosition){
 				}
 		}
 		i++;
+		expr++;
 	}
 	Expression *exp = createExpression(tkn, len);
 	free(tkn);
@@ -142,24 +149,19 @@ void iterateOverArgs(AST *ast, void **expr, size_t len){
 	assert(len > 0);
 	// Skip the first arg which is the program call-out
 	int i = 1;
-	int j;
+	int j = 0;
 	Expression *exp; 
 	Expression *args = malloc(sizeof(Expression) * len);
 
 	while(i < len){
+		printf("expr[%d] = %s\n", i, (char*)expr[i]);
 		exp = parse(ast, expr[i], i);
-		args[i-1] = exp;
+		args[j] = *exp;
 		i++;
+		j++;
 	}
-
-	printf("len: %ld", len);
-	for(i = 0; i < len; i++){
-		for(j = 0; j < args[i]->len; j++){
-			printf("len: %ld", args[i]->len);
-			//printf("Tokens[i]: %c", *(char*)args[i]->tkn[j].data);
-		}
-	}
-
+	
+	printExpression(args, len);
 	free(exp);
 	free(args);
 }
@@ -170,6 +172,7 @@ int main(int argc, char *argv[]){
 	// (AB)C + CBA
 	// current expr: AC*(ABD) + ABC
 	void **expr = (void**)argv;
+	// Less ./main
 	//printf("expr: %s\n", (char*)expr[2]); 
 	AST *ast; 
 	createAST(&ast, constructor, destructor, comparator);
