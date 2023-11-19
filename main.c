@@ -4,30 +4,6 @@
 #include <assert.h>
 #include <stdbool.h>
 
-typedef void * (*ast_constructor)(void *);
-typedef void (*ast_destructor)(void *);
-typedef int (*ast_comparator)(const void *, const void *);
-
-void* constructor(void *data){
-	void *ptr = malloc(sizeof(char));
-	memcpy(ptr, data, sizeof(char));
-	return ptr;
-}
-
-void destructor(void *data){
-	free(data);
-}
-
-int comparator(const void *a, const void *b){
-	if(*(char*)a > *(char*)b){
-		return -1;
-	} else if(*(char*) a == *(char*) b){
-		return 0;
-	} else {
-		return 1;
-	}
-}
-
 enum Type {
 	NOT_IDENTIFIED,
 	IDENTIFIER,
@@ -40,7 +16,7 @@ typedef struct Token {
 	struct Token *left;
 	struct Token *right;
 	size_t position;
-	void *data;
+	char *data;
 } Token;
 
 typedef struct Expression {
@@ -51,26 +27,33 @@ typedef struct Expression {
 typedef struct AST {
 	Token *root;
 	size_t size;
-	ast_constructor constructor;
-	ast_destructor destructor;
-	ast_comparator comparator;
 } AST;
 
-void createAST(AST** tree, ast_constructor constructor, ast_destructor destructor, ast_comparator comparator){
+int checkWord(char *tkn){
+	char word = *(char*)tkn;
+	if((int)word >= 65 && (int)word <= 91)
+		return IDENTIFIER;
+	else if(word == '+' || word == '*')
+		return OPERATOR;
+	else if(word == '(' || word == ')')
+		return KEYWORD;
+	else
+		return -1;
+}
+
+void createAST(AST** tree){
 	(*tree) = malloc(sizeof(AST)); 
 	(*tree)->root = malloc(sizeof(Token));
 	(*tree)->size = 0;
-	(*tree)->constructor = constructor;
-	(*tree)->destructor = destructor;
-	(*tree)->comparator = comparator;
 }
 
-Token* createNode(void *data, ast_constructor constructor){
+Token* createNode(char *data){
 	Token* node = malloc(sizeof(Token));
 	node->left = NULL;
 	node->right = NULL;
 	node->type = NOT_IDENTIFIED;
-	node->data = constructor(data);
+	node->data = malloc(strlen(data)); 
+	strcpy(node->data, data);
 	node->position = -1;
 	return node;
 }
@@ -82,11 +65,23 @@ Expression* createExpression(Token *t, size_t len){
 	return exp;
 }
 
-Token* insertHelper(AST* ast, Token *tkn, void *data){
+int compareToken(char *a, char *b){
+	if(checkWord(a) == OPERATOR && checkWord(b) == IDENTIFIER){
+		return -1;
+	} else if(checkWord(a) == IDENTIFIER && checkWord(b) == OPERATOR) {
+		return 1;
+	} else {
+		fprintf(stderr, "compare not identified: a = %s, b = %s\n", a, b);
+		exit(1);
+	}
+}
+
+Token* insertHelper(AST* ast, Token *tkn, char *data){
 	if(tkn == NULL){
 		ast->size++;
-		tkn = createNode(data, ast->constructor);
-	} else if(ast->comparator(data, tkn->data) < 0){
+		tkn = createNode(data);
+		// TODO: compare the operator with operand to check if someone is gonna be the node neigh or root
+	} else if(compareToken(data, tkn->data) < 0){
 		tkn->left = insertHelper(ast, tkn->left, data);
 	} else {
 		tkn->right = insertHelper(ast, tkn->right, data);
@@ -99,84 +94,153 @@ void insert(AST *ast, void *data){
 	ast->root = insertHelper(ast, ast->root, data);
 }
 
-void printExpression(Expression *args, int qtdArgs){
-	int i = 0;
-	int j = 0;
-	for(i = 0; i < qtdArgs; i++){
-		for(j = 0; j < args[i].len; j++){
-			printf("%c", *(char*)args[i].tkn[j].data); 
-		}
-	}
+void printExpression(Expression *e){
+	
 }
-Expression* parse(AST *ast, void *expr, int currentTokenPosition){
-	size_t len = strlen((char*)expr); 
+
+Expression* parseHelper(AST *ast, char* expr){
+	size_t len = strlen(expr); 
 	Token *tkn = malloc(sizeof(Token)*len);
 	// current expr: AC*(ABD) + ABC
 	size_t i = 0;
 	while(i < len){
-		char word = *(char*)expr;
-		switch(word){
+		char *d = &expr[i];
+		Token *aux = malloc(sizeof(Token));
+		printf("%c", d);
+		switch(expr[i]){
 			case '*':
 			case '+': 
-				tkn[i].data = ast->constructor(expr); 
-				tkn[i].type = OPERATOR; 
+				aux = createNode(d); 
+				aux->type = OPERATOR; 
+				tkn[i] = *aux;
 				break;
 			case '(': 
 			case ')':
-				tkn[i].data = ast->constructor(expr);
-				tkn[i].type = KEYWORD;
+				aux = createNode(d); 
+				aux->type = KEYWORD;
+				tkn[i] = *aux;
 				break;
 			default:
-				if((int)word >= 65 && (int)word <= 91){
-					// TODO(rvlt): Check if syntax is correct
-					tkn[i].data = ast->constructor(expr); 
-					tkn[i].type = IDENTIFIER;
+				// TODO(rvlt): Check if syntax is correct
+				if(checkWord(d) == IDENTIFIER){
+					aux = createNode(d); 
+					aux->type = IDENTIFIER;
+					tkn[i] = *aux;
 					break;
 				} else {
-					printf("Expression not parsed by tokenization: %c", word);
+					printf("Expression not parsed by tokenization: %c", d);
 					exit(-1);
 				}
 		}
 		i++;
-		expr++;
+		free(aux);
 	}
 	Expression *exp = createExpression(tkn, len);
 	free(tkn);
 	return exp;
 }
 
-void iterateOverArgs(AST *ast, void **expr, size_t len){
-	assert(len > 0);
-	// Skip the first arg which is the program call-out
-	int i = 1;
-	int j = 0;
-	Expression *exp; 
-	Expression *args = malloc(sizeof(Expression) * len);
+typedef struct ListNode {
+	char *data;
+	struct ListNode *next;
+} ListNode;
 
-	while(i < len){
-		printf("expr[%d] = %s\n", i, (char*)expr[i]);
-		exp = parse(ast, expr[i], i);
-		args[j] = *exp;
-		i++;
-		j++;
+typedef ListNode LN;
+
+typedef struct LinkedList {
+	LN *root;
+	size_t size;
+} LinkedList;
+
+typedef LinkedList LL;
+
+void createLinkedList(LL **l){
+	(*l) = malloc(sizeof(LL)); 
+	(*l)->root = NULL; 
+	(*l)->size = 0;
+}
+
+LN *createListNode(char *data){
+	LN *node = malloc(sizeof(LN)); 
+	node->data = malloc(strlen(data));
+	strcpy(node->data, data);
+	node->next = NULL;
+
+	return node;
+}
+
+LN* appendHelper(LL* list, LN *listNode, void *data){
+	if(listNode == NULL){
+		list->size++;
+		listNode = createListNode(data);
+	} else {
+		listNode->next = appendHelper(list, listNode->next, data);
+	} 
+	  
+	return listNode;
+}
+
+void append(LL *list, char *data){
+	list->root = appendHelper(list, list->root, data);
+}
+
+LL *readFile(FILE *f){
+	char *line = NULL;
+	size_t len = 0;
+	ssize_t nread;
+
+	LL *l;
+	createLinkedList(&l); 
+	while((nread = getline(&line, &len, f)) != -1){		
+		append(l, line);
 	}
-	
-	printExpression(args, len);
-	free(exp);
-	free(args);
+
+	return l;
+}
+
+void printList(LL *inputs){
+	LN *aux = inputs->root;
+	int it = 1;
+	while(aux){
+		printf("input %i: %s", it, aux->data);
+		aux = aux->next;
+		it += 1;
+	}
+}
+
+void parse(AST *ast, char *expr){
+	Expression *e; 
+	e = parseHelper(ast, expr);
+	printExpression(e);
+}
+
+void evaluate(AST *ast, LL *inputs){
+	LN *aux = inputs->root;
+	int it = 1;
+	while(aux){
+		parse(ast, aux->data);
+		aux = aux->next;
+		it += 1;
+	}
 }
 
 int main(int argc, char *argv[]){
-	assert(argc > 1);
-	// AB + ABC
-	// (AB)C + CBA
-	// current expr: AC*(ABD) + ABC
-	void **expr = (void**)argv;
-	// Less ./main
-	//printf("expr: %s\n", (char*)expr[2]); 
+	const char *filename = "input.txt"; 
+	FILE *f = fopen(filename, "r+");
+
+	if(f == NULL){
+		fprintf(stderr, "Couldn't open file input.txt\n");
+		exit(-1);
+	}
+
 	AST *ast; 
-	createAST(&ast, constructor, destructor, comparator);
-	iterateOverArgs(ast, expr, argc);
-	destructor(ast);
+	createAST(&ast);
+
+	// Linked list of inputs
+	LL *inputs = readFile(f);
+	evaluate(ast, inputs);
+
+	free(ast);
+	fclose(f);
 	return 0;
 }
