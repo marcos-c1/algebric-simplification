@@ -4,15 +4,23 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#define DEBUG(...) \
+	fprintf(stderr, __VA_ARGS__); 
+
 enum Type {
 	NOT_IDENTIFIED,
+	BLANK_SPACE,
 	IDENTIFIER,
-	OPERATOR,
-	KEYWORD
+	ADDITION,
+	MULTIPLIER,
+	NEGATIVE,
+	LPAR, // left parentheses
+	RPAR, // right parentheses
 };
 
 typedef struct Token {
 	enum Type type;
+	int isNegative; 
 	struct Token *left;
 	struct Token *right;
 	size_t position;
@@ -33,12 +41,18 @@ int checkWord(char *tkn){
 	char word = *(char*)tkn;
 	if((int)word >= 65 && (int)word <= 91)
 		return IDENTIFIER;
-	else if(word == '+' || word == '*')
-		return OPERATOR;
-	else if(word == '(' || word == ')')
-		return KEYWORD;
+	else if(word == '+') 
+		return ADDITION;
+	else if(word == '*')
+		return MULTIPLIER;
+	else if(word == '(') 
+		return LPAR;
+	else if(word == ')')
+		return RPAR;
+	else if((int)word == 32)
+		return BLANK_SPACE;
 	else
-		return -1;
+		return NOT_IDENTIFIED;
 }
 
 void createAST(AST** tree){
@@ -54,6 +68,7 @@ Token* createNode(char *data){
 	node->type = NOT_IDENTIFIED;
 	node->data = malloc(strlen(data)); 
 	strcpy(node->data, data);
+	node->isNegative = 0;
 	node->position = -1;
 	return node;
 }
@@ -66,12 +81,12 @@ Expression* createExpression(Token *t, size_t len){
 }
 
 int compareToken(char *a, char *b){
-	if(checkWord(a) == OPERATOR && checkWord(b) == IDENTIFIER){
+	if((checkWord(a) == ADDITION || checkWord(a) == MULTIPLIER) && checkWord(b) == IDENTIFIER){
 		return -1;
-	} else if(checkWord(a) == IDENTIFIER && checkWord(b) == OPERATOR) {
+	} else if(checkWord(a) == IDENTIFIER && (checkWord(b) == ADDITION || checkWord(b) == MULTIPLIER)) {
 		return 1;
 	} else {
-		fprintf(stderr, "compare not identified: a = %s, b = %s\n", a, b);
+		DEBUG("Comparing two things not identified: a = %s, b = %s\n", a, b);
 		exit(1);
 	}
 }
@@ -95,40 +110,60 @@ void insert(AST *ast, void *data){
 }
 
 void printExpression(Expression *e){
-	
+	for(int i = 0; i < e->len; i++){
+		DEBUG("tkn[%i] = %c\n", i, *e->tkn[i].data);
+	}	
 }
 
 Expression* parseHelper(AST *ast, char* expr){
-	size_t len = strlen(expr); 
+	size_t len = strlen(expr)-1; 
 	Token *tkn = malloc(sizeof(Token)*len);
 	// current expr: AC*(ABD) + ABC
 	size_t i = 0;
 	while(i < len){
-		char *d = &expr[i];
 		Token *aux = malloc(sizeof(Token));
-		printf("%c", d);
+		DEBUG("expression at parseHelper: %c\n", expr[i]);
 		switch(expr[i]){
 			case '*':
+				aux = createNode(&expr[i]); 
+				aux->type = MULTIPLIER; 
+				tkn[i] = *aux;
+				break;
 			case '+': 
-				aux = createNode(d); 
-				aux->type = OPERATOR; 
+				aux = createNode(&expr[i]); 
+				aux->type = ADDITION; 
 				tkn[i] = *aux;
 				break;
 			case '(': 
+				aux = createNode(&expr[i]); 
+				aux->type = LPAR;
+				tkn[i] = *aux;
+				break;
 			case ')':
-				aux = createNode(d); 
-				aux->type = KEYWORD;
+				aux = createNode(&expr[i]); 
+				aux->type = RPAR;
+				tkn[i] = *aux;
+				break;
+			case '!':
+				aux = createNode(&expr[i]); 
+				aux->type = NEGATIVE;
+				aux->isNegative = 1;
 				tkn[i] = *aux;
 				break;
 			default:
 				// TODO(rvlt): Check if syntax is correct
-				if(checkWord(d) == IDENTIFIER){
-					aux = createNode(d); 
+				if(checkWord(&expr[i]) == IDENTIFIER){
+					aux = createNode(&expr[i]); 
 					aux->type = IDENTIFIER;
 					tkn[i] = *aux;
 					break;
-				} else {
-					printf("Expression not parsed by tokenization: %c", d);
+				} else if (checkWord(&expr[i]) == BLANK_SPACE) {
+					aux = createNode(&expr[i]); 
+					aux->type = BLANK_SPACE;
+					tkn[i] = *aux;
+					break;	
+				}else {
+					printf("Expression not parsed by tokenization: %d", (int)expr[i]);
 					exit(-1);
 				}
 		}
@@ -214,7 +249,7 @@ void parse(AST *ast, char *expr){
 	printExpression(e);
 }
 
-void evaluate(AST *ast, LL *inputs){
+void lexer(AST *ast, LL *inputs){
 	LN *aux = inputs->root;
 	int it = 1;
 	while(aux){
@@ -238,7 +273,7 @@ int main(int argc, char *argv[]){
 
 	// Linked list of inputs
 	LL *inputs = readFile(f);
-	evaluate(ast, inputs);
+	lexer(ast, inputs);
 
 	free(ast);
 	fclose(f);
